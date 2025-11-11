@@ -192,8 +192,46 @@ When detected:
 
 ## Troubleshooting
 
+### ❌ Getting 403 Forbidden Errors?
+
+**This is the most common issue.** PerimeterX (Frontier's bot protection) is blocking your requests.
+
+**Quick Diagnosis:**
+
+1. **Test without proxies first:**
+   ```bash
+   node test-simple-scrape.js ORD ATL 2025-11-20
+   ```
+   - If this works: Your proxies are the problem
+   - If this fails: Your IP might be flagged OR code needs updating
+
+2. **Test your proxies:**
+   ```bash
+   # Create proxies.txt with your proxy list (one per line: IP:PORT)
+   node test-proxies.js
+   ```
+   This will identify which proxies work and save them to `working-proxies.txt`
+
+3. **Read the full troubleshooting guide:**
+   ```bash
+   cat TROUBLESHOOTING.md
+   ```
+
+**Common Causes:**
+- ❌ Low-quality proxies (free, datacenter, burned)
+- ❌ Proxies already blacklisted by Frontier
+- ❌ Scraping too fast (need delays)
+- ❌ Your IP got flagged
+
+**Solutions:**
+- ✅ Get premium residential proxies (Smartproxy, Bright Data)
+- ✅ Use only proxies that pass `test-proxies.js`
+- ✅ Add delays between requests (30+ seconds)
+- ✅ Monitor proxy stats and replace bad ones
+
 ### No Available Proxies Error
 - Add more proxies via the web interface
+- Run `node test-proxies.js` to find working ones
 - Clear blacklist if many proxies are blacklisted
 - Reset cooldowns if many proxies are in cooldown
 - Wait for cooldown timers to expire (5 minutes)
@@ -205,13 +243,13 @@ When detected:
 
 ### Connection Errors
 - Verify proxy format is correct (IP:PORT)
-- Test proxies manually to ensure they work
+- Run `node test-proxies.js` to test proxies
 - Check if proxies require authentication (not currently supported)
 
 ### Slow Scraping
 - Reduce number of destinations in bulk search
 - Increase delay between requests in `server.js` (currently 10 seconds)
-- Use faster proxies
+- Use faster proxies (test with `node test-proxies.js`)
 
 ## File Structure
 
