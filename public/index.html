@@ -517,6 +517,74 @@
       </div>
     </div>
 
+    <!-- Testing Card -->
+    <div class="card">
+      <h2>🧪 Testing Tools</h2>
+      <p style="color: #666; margin-bottom: 20px;">Test scraping and proxy functionality directly from your browser</p>
+
+      <!-- Test Without Proxy -->
+      <div style="margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+        <h3 style="margin-bottom: 15px;">Test Scraping (No Proxy)</h3>
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 15px;">
+          Tests if scraping works from your server's IP address. Useful to verify the code works before testing proxies.
+        </p>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="testOrigin">Origin</label>
+            <select id="testOrigin" required></select>
+          </div>
+          <div class="form-group">
+            <label for="testDestination">Destination</label>
+            <select id="testDestination" required></select>
+          </div>
+          <div class="form-group">
+            <label for="testDate">Date</label>
+            <input type="date" id="testDate" required>
+          </div>
+        </div>
+
+        <button class="btn btn-info btn-large" onclick="testScrapeNoProxy()">
+          🧪 Test Scrape (No Proxy)
+        </button>
+
+        <div id="testScrapeResults" class="hidden" style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px;"></div>
+      </div>
+
+      <!-- Test Single Proxy -->
+      <div style="margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+        <h3 style="margin-bottom: 15px;">Test Single Proxy</h3>
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 15px;">
+          Test if a specific proxy works with Frontier's website.
+        </p>
+
+        <div class="form-group">
+          <label for="testProxyInput">Proxy (IP:PORT)</label>
+          <input type="text" id="testProxyInput" placeholder="104.207.44.112:3129">
+        </div>
+
+        <button class="btn btn-info btn-large" onclick="testSingleProxy()">
+          🔍 Test This Proxy
+        </button>
+
+        <div id="testProxyResults" class="hidden" style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px;"></div>
+      </div>
+
+      <!-- Test All Proxies -->
+      <div style="padding: 20px; background: #f8f9fa; border-radius: 8px;">
+        <h3 style="margin-bottom: 15px;">Test All Proxies (Batch)</h3>
+        <p style="color: #666; font-size: 0.9rem; margin-bottom: 15px;">
+          Test all proxies from your proxy list. This will identify working proxies and show which are blocked. <strong>This may take several minutes.</strong>
+        </p>
+
+        <button class="btn btn-info btn-large" onclick="testAllProxies()">
+          📊 Test All Proxies
+        </button>
+
+        <div id="testBatchResults" class="hidden" style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px;"></div>
+      </div>
+    </div>
+
     <!-- Flight Search Card -->
     <div class="card">
       <h2>🔍 Search Flights</h2>
@@ -984,8 +1052,314 @@
       `;
     }
 
+    // ========== TESTING FUNCTIONS ==========
+
+    async function testScrapeNoProxy() {
+      const origin = document.getElementById('testOrigin').value;
+      const destination = document.getElementById('testDestination').value;
+      const date = document.getElementById('testDate').value;
+
+      if (!origin || !destination || !date) {
+        alert('Please fill in all fields');
+        return;
+      }
+
+      const resultsDiv = document.getElementById('testScrapeResults');
+      resultsDiv.classList.remove('hidden');
+      resultsDiv.innerHTML = '<div class="spinner"></div><p>Testing scrape without proxy...</p>';
+
+      try {
+        const response = await fetch('/api/test/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ origin, destination, date })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          resultsDiv.innerHTML = `
+            <div style="color: #28a745;">
+              <h4>✅ Success!</h4>
+              <p>Scraping works from your server's IP</p>
+              <p><strong>Found ${data.flights.length} flights</strong></p>
+              <p style="font-size: 0.9rem; color: #666;">This means your scraper code works. If you're getting 403 errors with proxies, the proxies are the problem.</p>
+            </div>
+          `;
+        } else {
+          resultsDiv.innerHTML = `
+            <div style="color: #dc3545;">
+              <h4>❌ Failed</h4>
+              <p>${data.message}</p>
+              <p style="font-size: 0.9rem;"><strong>Error:</strong> ${data.error}</p>
+              <p style="font-size: 0.9rem; color: #666;">This suggests either your server IP is blocked or there's a code issue.</p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div style="color: #dc3545;">
+            <h4>❌ Error</h4>
+            <p>${error.message}</p>
+          </div>
+        `;
+      }
+    }
+
+    async function testSingleProxy() {
+      const proxy = document.getElementById('testProxyInput').value.trim();
+
+      if (!proxy || !proxy.includes(':')) {
+        alert('Please enter a proxy in format: IP:PORT');
+        return;
+      }
+
+      const resultsDiv = document.getElementById('testProxyResults');
+      resultsDiv.classList.remove('hidden');
+      resultsDiv.innerHTML = '<div class="spinner"></div><p>Testing proxy... This may take 30-60 seconds...</p>';
+
+      try {
+        const response = await fetch('/api/test/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ proxy })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          resultsDiv.innerHTML = `
+            <div style="color: #28a745;">
+              <h4>✅ Proxy Works!</h4>
+              <p><strong>${data.proxy}</strong></p>
+              <p>Status: <span class="badge badge-success">${data.status}</span></p>
+              <p>Found ${data.flights} flights</p>
+              <p>Load time: ${(data.loadTime / 1000).toFixed(1)}s</p>
+              <p style="font-size: 0.9rem; color: #666;">✅ This proxy can be used safely!</p>
+            </div>
+          `;
+        } else {
+          let statusClass = 'error';
+          if (data.status === 'blocked') statusClass = 'error';
+          else if (data.status === 'bot_detected') statusClass = 'warning';
+          else if (data.status === 'timeout') statusClass = 'warning';
+
+          resultsDiv.innerHTML = `
+            <div style="color: #dc3545;">
+              <h4>❌ Proxy Failed</h4>
+              <p><strong>${data.proxy}</strong></p>
+              <p>Status: <span class="badge badge-${statusClass}">${data.status}</span></p>
+              <p>${data.reason}</p>
+              <p>Load time: ${(data.loadTime / 1000).toFixed(1)}s</p>
+              <p style="font-size: 0.9rem; color: #666;">
+                ${data.status === 'blocked' ? '🚫 This proxy is blacklisted by PerimeterX. Do not use.' : ''}
+                ${data.status === 'bot_detected' ? '🤖 Bot detection triggered. Proxy might be burned.' : ''}
+                ${data.status === 'connection_failed' ? '🔌 Cannot connect to this proxy. Check if it\'s online.' : ''}
+                ${data.status === 'timeout' ? '⏱️ Proxy is too slow. Consider removing.' : ''}
+              </p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div style="color: #dc3545;">
+            <h4>❌ Error</h4>
+            <p>${error.message}</p>
+          </div>
+        `;
+      }
+    }
+
+    async function testAllProxies() {
+      if (!confirm('This will test all proxies in your list and may take several minutes. Continue?')) {
+        return;
+      }
+
+      // Get proxies from the textarea
+      const proxyText = document.getElementById('proxyList').value;
+      const proxies = proxyText.split('\n')
+        .map(p => p.trim())
+        .filter(p => p.length > 0 && p.includes(':'));
+
+      if (proxies.length === 0) {
+        alert('No proxies to test. Please add proxies first.');
+        return;
+      }
+
+      const resultsDiv = document.getElementById('testBatchResults');
+      resultsDiv.classList.remove('hidden');
+      resultsDiv.innerHTML = `
+        <div class="spinner"></div>
+        <p>Testing ${proxies.length} proxies...</p>
+        <p style="color: #666; font-size: 0.9rem;">This will take approximately ${Math.ceil(proxies.length * 32 / 60)} minutes</p>
+      `;
+
+      try {
+        const response = await fetch('/api/test/proxies/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ proxies })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          let html = `
+            <div>
+              <h4>📊 Test Complete</h4>
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 20px 0;">
+                <div style="padding: 15px; background: #28a745; color: white; border-radius: 8px; text-align: center;">
+                  <div style="font-size: 2rem; font-weight: bold;">${data.working}</div>
+                  <div>Working</div>
+                </div>
+                <div style="padding: 15px; background: #dc3545; color: white; border-radius: 8px; text-align: center;">
+                  <div style="font-size: 2rem; font-weight: bold;">${data.blocked}</div>
+                  <div>Blocked</div>
+                </div>
+                <div style="padding: 15px; background: #ffc107; color: #333; border-radius: 8px; text-align: center;">
+                  <div style="font-size: 2rem; font-weight: bold;">${data.failed}</div>
+                  <div>Failed</div>
+                </div>
+                <div style="padding: 15px; background: #17a2b8; color: white; border-radius: 8px; text-align: center;">
+                  <div style="font-size: 2rem; font-weight: bold;">${((data.working / data.total) * 100).toFixed(0)}%</div>
+                  <div>Success Rate</div>
+                </div>
+              </div>
+          `;
+
+          if (data.workingProxies.length > 0) {
+            html += `
+              <div style="margin-top: 20px;">
+                <h5>✅ Working Proxies (${data.workingProxies.length}):</h5>
+                <textarea readonly style="width: 100%; height: 150px; font-family: monospace; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">${data.workingProxies.join('\n')}</textarea>
+                <button class="btn btn-primary" onclick="useWorkingProxiesOnly()">
+                  📥 Use Only Working Proxies
+                </button>
+              </div>
+            `;
+          } else {
+            html += `
+              <div style="margin-top: 20px; padding: 15px; background: #f8d7da; border-radius: 8px; color: #721c24;">
+                <h5>❌ No Working Proxies Found</h5>
+                <p>All tested proxies failed. Recommendations:</p>
+                <ul>
+                  <li>Get premium residential proxies (not datacenter)</li>
+                  <li>Use services like Smartproxy or Bright Data</li>
+                  <li>Ensure proxies are fresh and not burned</li>
+                </ul>
+              </div>
+            `;
+          }
+
+          // Detailed results table
+          html += `
+            <details style="margin-top: 20px;">
+              <summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                📋 View Detailed Results
+              </summary>
+              <div style="margin-top: 10px; max-height: 400px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                  <thead>
+                    <tr style="background: #667eea; color: white;">
+                      <th style="padding: 10px; text-align: left;">Proxy</th>
+                      <th style="padding: 10px; text-align: left;">Status</th>
+                      <th style="padding: 10px; text-align: left;">Time</th>
+                      <th style="padding: 10px; text-align: left;">Flights</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+          `;
+
+          data.results.forEach(r => {
+            const statusColor = r.status === 'working' ? '#28a745' : '#dc3545';
+            html += `
+              <tr style="border-bottom: 1px solid #ddd;">
+                <td style="padding: 8px;"><code>${r.proxy}</code></td>
+                <td style="padding: 8px; color: ${statusColor}; font-weight: bold;">${r.status}</td>
+                <td style="padding: 8px;">${(r.loadTime / 1000).toFixed(1)}s</td>
+                <td style="padding: 8px;">${r.flights || '-'}</td>
+              </tr>
+            `;
+          });
+
+          html += `
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          `;
+
+          html += '</div>';
+          resultsDiv.innerHTML = html;
+
+          // Store working proxies in a global variable for later use
+          window.workingProxies = data.workingProxies;
+
+        } else {
+          resultsDiv.innerHTML = `
+            <div style="color: #dc3545;">
+              <h4>❌ Test Failed</h4>
+              <p>${data.error || 'Unknown error'}</p>
+            </div>
+          `;
+        }
+      } catch (error) {
+        resultsDiv.innerHTML = `
+          <div style="color: #dc3545;">
+            <h4>❌ Error</h4>
+            <p>${error.message}</p>
+          </div>
+        `;
+      }
+    }
+
+    function useWorkingProxiesOnly() {
+      if (!window.workingProxies || window.workingProxies.length === 0) {
+        alert('No working proxies found');
+        return;
+      }
+
+      if (confirm(`Replace your current proxy list with ${window.workingProxies.length} working proxies?`)) {
+        document.getElementById('proxyList').value = window.workingProxies.join('\n');
+        alert('✅ Proxy list updated with working proxies! Click "Update Proxy List" to save.');
+
+        // Scroll to proxy list
+        document.getElementById('proxyList').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    // Initialize test form dropdowns
+    async function initTestForms() {
+      const testOrigin = document.getElementById('testOrigin');
+      const testDestination = document.getElementById('testDestination');
+
+      // Populate with airports
+      const sorted = Object.entries(airports).sort((a, b) => a[1].localeCompare(b[1]));
+
+      sorted.forEach(([code, name]) => {
+        const opt1 = document.createElement('option');
+        opt1.value = code;
+        opt1.textContent = `${name} (${code})`;
+        testOrigin.appendChild(opt1);
+
+        const opt2 = document.createElement('option');
+        opt2.value = code;
+        opt2.textContent = `${name} (${code})`;
+        testDestination.appendChild(opt2);
+      });
+
+      // Set defaults
+      testOrigin.value = 'ORD';
+      testDestination.value = 'ATL';
+
+      // Set default date
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      document.getElementById('testDate').value = tomorrow.toISOString().split('T')[0];
+    }
+
     // Initialize on load
-    init();
+    init().then(() => initTestForms());
   </script>
 </body>
 </html>

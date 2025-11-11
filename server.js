@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const FlightsDatabase = require('./database');
 const ProxyManager = require('./proxy-manager');
-const { scrapeFrontierDirect } = require('./scraper');
+const { scrapeFrontierDirect } = require('./scraper-enhanced');
 const { AIRPORTS, ROUTES } = require('./routes-data');
 const { PREMIUM_PROXIES } = require('./premium-proxies');
 
@@ -451,6 +451,274 @@ app.post('/api/proxies/reset-cooldowns', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to reset cooldowns',
+      message: error.message
+    });
+  }
+});
+
+// ========== TESTING ENDPOINTS ==========
+
+/**
+ * POST /api/test/scrape
+ * Test scraping without proxy (from server's IP)
+ * Body: { origin, destination, date }
+ */
+app.post('/api/test/scrape', async (req, res) => {
+  try {
+    const { origin, destination, date } = req.body;
+
+    if (!origin || !destination || !date) {
+      return res.status(400).json({
+        error: 'Missing required fields: origin, destination, date'
+      });
+    }
+
+    console.log(`\n🧪 Testing scrape without proxy: ${origin} → ${destination} on ${date}`);
+
+    // Create a mock proxy manager that doesn't actually use proxies
+    const mockProxyManager = {
+      getNextAvailableProxy: async () => ({ proxy: 'TEST_MODE' }),
+      markProxySuccess: async () => {},
+      markProxyBotDetected: async () => {},
+      markProxyError: async () => {},
+      markProxyBlacklisted: async () => {}
+    };
+
+    const result = await scrapeFrontierDirect(origin, destination, date, {
+      proxyManager: mockProxyManager,
+      maxRetries: 1,
+      timeout: 60000,
+      elementWaitTimeout: 30000,
+      testMode: true  // Special flag to skip proxy usage
+    });
+
+    console.log(`✅ Test successful: ${result.flights.length} flights found`);
+
+    res.json({
+      success: true,
+      flights: result.flights,
+      testMode: true,
+      message: 'Successfully scraped without proxy'
+    });
+
+  } catch (error) {
+    console.error(`❌ Test failed: ${error.message}`);
+
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      testMode: true,
+      message: 'Test scrape failed - check if your server IP is blocked or if site structure changed'
+    });
+  }
+});
+
+/**
+ * POST /api/test/proxy
+ * Test a single proxy
+ * Body: { proxy: "IP:PORT", origin?, destination?, date? }
+ */
+app.post('/api/test/proxy', async (req, res) => {
+  try {
+    const { proxy, origin = 'ORD', destination = 'ATL', date = '2025-11-20' } = req.body;
+
+    if (!proxy) {
+      return res.status(400).json({
+        error: 'Missing required field: proxy'
+      });
+    }
+
+    console.log(`\n🧪 Testing proxy: ${proxy}`);
+
+    // Create a temporary proxy manager for testing
+    const tempProxyManager = {
+      getNextAvailableProxy: async () => ({
+        proxy,
+        success_count: 0,
+        bot_detections: 0,
+        error_count: 0
+      }),
+      markProxySuccess: async () => {},
+      markProxyBotDetected: async (p) => {
+        console.log(`🤖 Bot detected for ${p}`);
+      },
+      markProxyError: async (p) => {
+        console.log(`❌ Error for ${p}`);
+      },
+      markProxyBlacklisted: async (p, reason) => {
+        console.log(`🚫 Blacklisted ${p}: ${reason}`);
+      }
+    };
+
+    const startTime = Date.now();
+
+    try {
+      const result = await scrapeFrontierDirect(origin, destination, date, {
+        proxyManager: tempProxyManager,
+        maxRetries: 1,
+        timeout: 30000,
+        elementWaitTimeout: 20000
+      });
+
+      const loadTime = Date.now() - startTime;
+
+      console.log(`✅ Proxy works: ${result.flights.length} flights found in ${loadTime}ms`);
+
+      res.json({
+        success: true,
+        proxy,
+        status: 'working',
+        flights: result.flights.length,
+        loadTime,
+        message: `Proxy works! Found ${result.flights.length} flights in ${(loadTime / 1000).toFixed(1)}s`
+      });
+
+    } catch (error) {
+      const loadTime = Date.now() - startTime;
+
+      let status = 'error';
+      let reason = error.message;
+
+      if (error.message.includes('403')) {
+        status = 'blocked';
+        reason = '403 Forbidden - Proxy is blocked by PerimeterX';
+      } else if (error.message.includes('Bot detected')) {
+        status = 'bot_detected';
+        reason = 'Bot detection triggered';
+      } else if (error.message.includes('ERR_PROXY_CONNECTION_FAILED') ||
+                 error.message.includes('ERR_TUNNEL_CONNECTION_FAILED')) {
+        status = 'connection_failed';
+        reason = 'Cannot connect to proxy';
+      } else if (error.message.includes('Timeout') || error.message.includes('timeout')) {
+        status = 'timeout';
+        reason = 'Proxy response timeout';
+      }
+
+      console.log(`❌ Proxy test failed: ${reason}`);
+
+      res.json({
+        success: false,
+        proxy,
+        status,
+        reason,
+        loadTime,
+        message: reason
+      });
+    }
+
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to test proxy',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/test/proxies/batch
+ * Test multiple proxies
+ * Body: { proxies: ["IP:PORT", ...] }
+ */
+app.post('/api/test/proxies/batch', async (req, res) => {
+  try {
+    const { proxies } = req.body;
+
+    if (!Array.isArray(proxies) || proxies.length === 0) {
+      return res.status(400).json({
+        error: 'Missing or invalid field: proxies (must be array)'
+      });
+    }
+
+    console.log(`\n🧪 Testing ${proxies.length} proxies in batch...`);
+
+    const results = [];
+
+    for (let i = 0; i < proxies.length; i++) {
+      const proxy = proxies[i];
+      console.log(`\n[${i + 1}/${proxies.length}] Testing ${proxy}...`);
+
+      // Test each proxy with a simple scrape
+      const tempProxyManager = {
+        getNextAvailableProxy: async () => ({
+          proxy,
+          success_count: 0,
+          bot_detections: 0,
+          error_count: 0
+        }),
+        markProxySuccess: async () => {},
+        markProxyBotDetected: async () => {},
+        markProxyError: async () => {},
+        markProxyBlacklisted: async () => {}
+      };
+
+      const startTime = Date.now();
+
+      try {
+        const result = await scrapeFrontierDirect('ORD', 'ATL', '2025-11-20', {
+          proxyManager: tempProxyManager,
+          maxRetries: 1,
+          timeout: 30000,
+          elementWaitTimeout: 20000
+        });
+
+        const loadTime = Date.now() - startTime;
+
+        results.push({
+          proxy,
+          status: 'working',
+          flights: result.flights.length,
+          loadTime,
+          success: true
+        });
+
+        console.log(`  ✅ Works (${loadTime}ms)`);
+
+      } catch (error) {
+        const loadTime = Date.now() - startTime;
+
+        let status = 'error';
+        if (error.message.includes('403')) status = 'blocked';
+        else if (error.message.includes('Bot detected')) status = 'bot_detected';
+        else if (error.message.includes('ERR_PROXY_CONNECTION')) status = 'connection_failed';
+        else if (error.message.includes('Timeout')) status = 'timeout';
+
+        results.push({
+          proxy,
+          status,
+          error: error.message.substring(0, 100),
+          loadTime,
+          success: false
+        });
+
+        console.log(`  ❌ ${status}`);
+      }
+
+      // Small delay between tests
+      if (i < proxies.length - 1) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    // Calculate summary
+    const working = results.filter(r => r.status === 'working');
+    const blocked = results.filter(r => r.status === 'blocked');
+    const failed = results.filter(r => !r.success);
+
+    console.log(`\n✅ Summary: ${working.length}/${proxies.length} working`);
+
+    res.json({
+      success: true,
+      total: proxies.length,
+      working: working.length,
+      blocked: blocked.length,
+      failed: failed.length,
+      workingProxies: working.map(r => r.proxy),
+      results
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to test proxies',
       message: error.message
     });
   }
