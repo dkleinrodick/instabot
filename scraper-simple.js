@@ -125,7 +125,7 @@ function parseFlights(flightData) {
 }
 
 /**
- * Check if the response indicates bot detection
+ * Check if the response indicates bot detection or other issues
  * @param {string} html - HTML content
  * @param {number} statusCode - HTTP status code
  * @returns {Object} { detected: boolean, reason: string }
@@ -133,6 +133,11 @@ function parseFlights(flightData) {
 function detectBotProtection(html, statusCode) {
   if (statusCode === 403) {
     return { detected: true, reason: '403_forbidden' };
+  }
+
+  // Check for redirect page (indicates wrong URL or access issue)
+  if (html.includes('Redirecting...') && html.includes('Click here to redirect')) {
+    return { detected: true, reason: 'redirect_page' };
   }
 
   if (html.includes('px-captcha') || html.includes('PerimeterX')) {
@@ -210,17 +215,23 @@ async function scrapeFlights(origin, destination, date, options = {}) {
       url: url,
       method: 'GET',
       timeout: timeout,
+      maxRedirects: 5,  // Follow up to 5 redirects
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.flyfrontier.com/',
         'DNT': '1',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Site': 'same-site',
+        'Sec-Fetch-User': '?1',
+        'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
         'Cache-Control': 'max-age=0'
       },
       validateStatus: function (status) {

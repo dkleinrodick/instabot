@@ -61,7 +61,7 @@ class ProxyManager {
       throw new Error(`No available proxies. Active: ${stats.active}, Cooldown: ${stats.cooldown}, Blacklisted: ${stats.blacklisted}`);
     }
 
-    return activeProxies;
+    return activeProxies.proxy;  // Return just the proxy string, not the whole object
   }
 
   // ========== STATE MANAGEMENT ==========
