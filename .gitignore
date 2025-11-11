@@ -9,8 +9,8 @@ package-lock.json
 
 # Debug files
 debug/
-*.html
-*.png
+debug/*.html
+debug/*.png
 latest_scrape_*
 
 # Environment
