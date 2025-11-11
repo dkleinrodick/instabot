@@ -3,7 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const FlightsDatabase = require('./database');
 const ProxyManager = require('./proxy-manager');
-const { scrapeFrontierDirect } = require('./scraper-enhanced');
+const { scrapeFlights } = require('./scraper-simple');
 const { AIRPORTS, ROUTES } = require('./routes-data');
 const { PREMIUM_PROXIES } = require('./premium-proxies');
 
@@ -30,6 +30,111 @@ app.use(express.static('public'));
     console.log(`Added ${PREMIUM_PROXIES.length} default proxies`);
   }
 })();
+
+// ========== HELPER FUNCTIONS ==========
+
+/**
+ * Scrape flights with automatic proxy rotation and retry logic
+ * @param {string} origin - Origin airport code
+ * @param {string} destination - Destination airport code
+ * @param {string} date - Date in YYYY-MM-DD format
+ * @param {Object} options - Options
+ * @param {ProxyManager} options.proxyManager - Proxy manager instance
+ * @param {number} options.maxRetries - Maximum retry attempts (default: 5)
+ * @param {number} options.timeout - Request timeout in ms (default: 30000)
+ * @param {boolean} options.testMode - If true, scrape without proxy (default: false)
+ * @returns {Promise<Object>} { flights: Array, proxyUsed: string }
+ */
+async function scrapeWithProxyRotation(origin, destination, date, options = {}) {
+  const {
+    proxyManager: pm,
+    maxRetries = 5,
+    timeout = 30000,
+    testMode = false
+  } = options;
+
+  let lastError = null;
+  let proxyUsed = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    let currentProxy = null;
+
+    try {
+      // Get proxy if not in test mode
+      if (!testMode && pm) {
+        currentProxy = await pm.getNextAvailableProxy();
+        if (!currentProxy) {
+          throw new Error('No available proxies. All proxies are blacklisted or in cooldown.');
+        }
+        console.log(`🔄 Attempt ${attempt}/${maxRetries} using proxy: ${currentProxy}`);
+      } else {
+        console.log(`🔄 Attempt ${attempt}/${maxRetries} (no proxy - test mode)`);
+      }
+
+      // Scrape using simple HTTP method
+      const result = await scrapeFlights(origin, destination, date, {
+        proxy: currentProxy,
+        testMode: testMode,
+        timeout: timeout
+      });
+
+      // Handle success
+      if (result.success) {
+        if (currentProxy && pm) {
+          await pm.markProxySuccess(currentProxy);
+        }
+        return {
+          flights: result.flights || [],
+          proxyUsed: currentProxy || 'direct'
+        };
+      }
+
+      // Handle bot detection
+      if (result.botDetected) {
+        console.log(`🤖 Bot detected: ${result.botReason}`);
+        if (currentProxy && pm) {
+          await pm.markProxyBotDetected(currentProxy, result.botReason);
+        }
+        lastError = new Error(`Bot detected: ${result.botReason}`);
+        continue; // Try next proxy
+      }
+
+      // Handle proxy connection errors
+      if (result.proxyError) {
+        console.log(`🔌 Proxy connection failed: ${result.error}`);
+        if (currentProxy && pm) {
+          await pm.markProxyError(currentProxy, result.error);
+        }
+        lastError = new Error(result.error);
+        continue; // Try next proxy
+      }
+
+      // Handle other errors
+      console.log(`❌ Scraping error: ${result.error}`);
+      if (currentProxy && pm) {
+        await pm.markProxyError(currentProxy, result.error);
+      }
+      lastError = new Error(result.error);
+
+    } catch (error) {
+      console.error(`❌ Attempt ${attempt} failed:`, error.message);
+      if (currentProxy && pm) {
+        await pm.markProxyError(currentProxy, error.message);
+      }
+      lastError = error;
+    }
+
+    // Wait before retry (except on last attempt)
+    if (attempt < maxRetries) {
+      const delay = 2000; // 2 second delay between retries
+      console.log(`⏳ Waiting ${delay}ms before next attempt...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  // All retries failed
+  throw lastError || new Error('Scraping failed after all retry attempts');
+}
 
 // ========== API ENDPOINTS ==========
 
@@ -125,11 +230,10 @@ app.post('/api/search', async (req, res) => {
       console.log(`\n🔍 Scraping ${origin} → ${destination} on ${date}...`);
 
       try {
-        const result = await scrapeFrontierDirect(origin, destination, date, {
+        const result = await scrapeWithProxyRotation(origin, destination, date, {
           proxyManager,
           maxRetries: 5,
-          timeout: 60000,
-          elementWaitTimeout: 30000
+          timeout: 30000
         });
 
         const flights = result.flights;
@@ -222,11 +326,10 @@ app.post('/api/search', async (req, res) => {
         console.log(`\n--- Scraping ${origin} → ${dest} ---`);
 
         try {
-          const result = await scrapeFrontierDirect(origin, dest, date, {
+          const result = await scrapeWithProxyRotation(origin, dest, date, {
             proxyManager,
             maxRetries: 5,
-            timeout: 60000,
-            elementWaitTimeout: 30000
+            timeout: 30000
           });
 
           const flights = result.flights;
@@ -484,11 +587,10 @@ app.post('/api/test/scrape', async (req, res) => {
       markProxyBlacklisted: async () => {}
     };
 
-    const result = await scrapeFrontierDirect(origin, destination, date, {
-      proxyManager: mockProxyManager,
+    const result = await scrapeWithProxyRotation(origin, destination, date, {
+      proxyManager: null,
       maxRetries: 1,
-      timeout: 60000,
-      elementWaitTimeout: 30000,
+      timeout: 30000,
       testMode: true  // Special flag to skip proxy usage
     });
 
@@ -553,11 +655,10 @@ app.post('/api/test/proxy', async (req, res) => {
     const startTime = Date.now();
 
     try {
-      const result = await scrapeFrontierDirect(origin, destination, date, {
+      const result = await scrapeWithProxyRotation(origin, destination, date, {
         proxyManager: tempProxyManager,
         maxRetries: 1,
-        timeout: 30000,
-        elementWaitTimeout: 20000
+        timeout: 30000
       });
 
       const loadTime = Date.now() - startTime;
@@ -654,11 +755,10 @@ app.post('/api/test/proxies/batch', async (req, res) => {
       const startTime = Date.now();
 
       try {
-        const result = await scrapeFrontierDirect('ORD', 'ATL', '2025-11-20', {
+        const result = await scrapeWithProxyRotation('ORD', 'ATL', '2025-11-20', {
           proxyManager: tempProxyManager,
           maxRetries: 1,
-          timeout: 30000,
-          elementWaitTimeout: 20000
+          timeout: 30000
         });
 
         const loadTime = Date.now() - startTime;
